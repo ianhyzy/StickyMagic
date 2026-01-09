@@ -13,7 +13,7 @@ function onOpen() {
 }
 
 function showSidebar() {
-  var html = HtmlService.createHtmlOutputFromFile('./script/Sidebar')
+  var html = HtmlService.createHtmlOutputFromFile('script/Sidebar')
     .setTitle('StickyMagic')
     .setWidth(300);
   DocumentApp.getUi().showSidebar(html);
