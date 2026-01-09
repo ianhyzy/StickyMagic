@@ -1,20 +1,20 @@
 /**
- * Google Docs Add-on: StickyRolo
- * The script interacts with document tabs to fetch structured metadata
+ * Google Docs Add-on: StickyMagic
+ * The script interacts with document tabs to fetch a document tab containing structured metadata
  * and provides context-aware suggestions based on the user's cursor position.
- * The metadata is organized using headings, which define hierarchy. Each entry can have descriptions or properties.
+ * The metadata is organized using headings, which define the hierarchy. Each entry can have descriptions (text and one image) or properties (key/value)
  * The add-on includes a sidebar UI for user interaction. Users can change how much context to include when looking up values.
  */
 
 function onOpen() {
-  DocumentApp.getUi().createMenu('StickyRolo')
+  DocumentApp.getUi().createMenu('StickyMagic')
     .addItem('Open Context Sidebar', 'showSidebar')
     .addToUi();
 }
 
 function showSidebar() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar')
-    .setTitle('StickyRolo')
+    .setTitle('StickyMagic')
     .setWidth(300);
   DocumentApp.getUi().showSidebar(html);
 }
