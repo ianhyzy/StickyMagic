@@ -1,0 +1,32 @@
+name: Deploy to Apps Script (Personal Gmail)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'script/**' # Only run if files in your script folder change
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Clasp
+        run: npm install -g @google/clasp
+
+      - name: Create clasprc.json
+        # This writes your secret to the file clasp expects
+        run: echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+
+      - name: Push to Apps Script
+        # 'script-dir' should match where your .js files are located
+        run: clasp push -f
+        working-directory: ./script
