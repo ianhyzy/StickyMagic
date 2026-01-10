@@ -8,7 +8,7 @@
 
 function onOpen() {
   DocumentApp.getUi().createMenu('Sticky Magic')
-    .addItem('Open Context Sidebar', 'showSidebar')
+    .addItem('Open Sticky Magic', 'showSidebar')
     .addToUi();
 }
 
