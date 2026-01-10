@@ -364,5 +364,33 @@ function getCurrentContext(lookaround) {
     safety++;
   }
 
-  return prefix + " " + coreText + " " + suffix;
+  var resultText = prefix + " " + coreText + " " + suffix;
+
+  // Retrieve Revision ID and Active Tab for auto-reload feature
+  var activeTabTitle = "";
+  var revisionId = "";
+
+  try {
+    var activeTab = doc.getActiveTab();
+    if (activeTab) {
+      activeTabTitle = activeTab.asDocumentTab().getTitle();
+    }
+  } catch (e) {
+    // Ignore errors if tabs not supported or other issue
+  }
+
+  try {
+    // Only fetch revision ID if needed (lightweight check)
+    // Note: This consumes a small amount of quota
+    var driveFile = Docs.Documents.get(doc.getId(), {fields: "revisionId"});
+    revisionId = driveFile.revisionId;
+  } catch (e) {
+    // Ignore
+  }
+
+  return {
+    contextText: resultText,
+    activeTabTitle: activeTabTitle,
+    revisionId: revisionId
+  };
 }
