@@ -7,14 +7,14 @@
  */
 
 function onOpen() {
-  DocumentApp.getUi().createMenu('StickyMagic')
+  DocumentApp.getUi().createMenu('Sticky Magic')
     .addItem('Open Context Sidebar', 'showSidebar')
     .addToUi();
 }
 
 function showSidebar() {
   var html = HtmlService.createHtmlOutputFromFile('script/Sidebar')
-    .setTitle('StickyMagic')
+    .setTitle('Sticky Magic')
     .setWidth(300);
   DocumentApp.getUi().showSidebar(html);
 }
