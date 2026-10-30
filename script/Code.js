@@ -189,7 +189,7 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
         description: description,
         properties: properties,
         category: pathStr,
-        imageUrl: foundImageUrl
+        imageUrl: foundImageUrl ? toImageDataUri(foundImageUrl) : null
       };
     }
   }
@@ -258,6 +258,20 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
   });
   
   return metadata;
+}
+
+/**
+ * Docs API image URIs are served with Cross-Origin-Resource-Policy: same-site,
+ * so the sidebar (hosted on googleusercontent.com) can't load them directly.
+ * Fetch a sidebar-sized copy server-side and inline it instead.
+ */
+function toImageDataUri(contentUri) {
+  try {
+    var blob = UrlFetchApp.fetch(contentUri.replace(/=s\d+(?=\?|$)/, "=s600")).getBlob();
+    return "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes());
+  } catch (e) {
+    return contentUri;
+  }
 }
 
 /**
