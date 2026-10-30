@@ -13,8 +13,14 @@ function onOpen() {
 }
 
 function showSidebar() {
-  var html = HtmlService.createHtmlOutputFromFile('script/Sidebar')
-    .setTitle('Sticky Magic')
+  // clasp deploys the file as "script/Sidebar"; copy-paste installs name it "Sidebar"
+  var html;
+  try {
+    html = HtmlService.createHtmlOutputFromFile('script/Sidebar');
+  } catch (e) {
+    html = HtmlService.createHtmlOutputFromFile('Sidebar');
+  }
+  html = html.setTitle('Sticky Magic')
     .setWidth(300);
   DocumentApp.getUi().showSidebar(html);
 }
@@ -94,6 +100,7 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
     if (element.paragraph) {
       var text = "";
       var imageUrl = null;
+      var imageId = null;
 
       // Check for Inline Objects (inside text elements)
       element.paragraph.elements.forEach(function(el) {
@@ -108,6 +115,7 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
 
              if (!imageUrl) {
                imageUrl = inlineObjects[objectId].inlineObjectProperties.embeddedObject.imageProperties.contentUri;
+               imageId = objectId;
              }
           }
         }
@@ -122,6 +130,7 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
               positionedObjects[objectId].positionedObjectProperties.embeddedObject.imageProperties) {
 
             imageUrl = positionedObjects[objectId].positionedObjectProperties.embeddedObject.imageProperties.contentUri;
+            imageId = objectId;
           }
         });
       }
@@ -134,7 +143,8 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
       lines.push({
         text: text.trim(),
         style: style,
-        imageUrl: imageUrl
+        imageUrl: imageUrl,
+        imageId: imageId
       });
     }
   });
@@ -155,12 +165,12 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
     }
 
     var properties = {};
-    var foundImageUrl = null;
+    var imageLine = null;
 
     // Check first line for image if present
-    if (buf[0].imageUrl) foundImageUrl = buf[0].imageUrl;
+    if (buf[0].imageUrl) imageLine = buf[0];
     // Check second line
-    if (!foundImageUrl && buf.length > 1 && buf[1].imageUrl) foundImageUrl = buf[1].imageUrl;
+    if (!imageLine && buf.length > 1 && buf[1].imageUrl) imageLine = buf[1];
 
     var startIndex = (description !== "") ? 2 : 1;
 
@@ -168,8 +178,8 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
       var line = buf[i].text;
 
       // Also check for image in subsequent lines
-      if (!foundImageUrl && buf[i].imageUrl) {
-        foundImageUrl = buf[i].imageUrl;
+      if (!imageLine && buf[i].imageUrl) {
+        imageLine = buf[i];
       }
 
       if (line.startsWith("_")) break; 
@@ -189,7 +199,8 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
         description: description,
         properties: properties,
         category: pathStr,
-        imageUrl: foundImageUrl
+        imageUrl: imageLine ? imageLine.imageUrl : null,
+        imageId: imageLine ? imageLine.imageId : null
       };
     }
   }
@@ -261,6 +272,22 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
 }
 
 /**
+ * Docs API image URIs are served with Cross-Origin-Resource-Policy: same-site,
+ * so the sidebar (hosted on googleusercontent.com) can't load them directly.
+ * The sidebar calls this per image, only when a card needs it, and caches the result.
+ * Returns null if the URI isn't a Docs image or has expired (they last ~30 minutes).
+ */
+function getImageDataUri(contentUri) {
+  if (!/^https:\/\/(docs\.google\.com|[\w-]+\.googleusercontent\.com)\//.test(contentUri)) return null;
+  try {
+    var blob = UrlFetchApp.fetch(contentUri.replace(/=s\d+(?=\?|$)/, "=s400")).getBlob();
+    return "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes());
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * Gets the text context from the user's cursor.
  * Accepts an optional 'lookaround' parameter to include preceding/following paragraphs.
  */
@@ -324,7 +351,7 @@ function getCurrentContext(lookaround) {
     }
   }
 
-  if (!startBlock) return "";
+  if (!startBlock) return buildContextResponse(doc, "");
 
   // 2. Look Backwards (Prepend text)
   var prefix = "";
@@ -364,5 +391,36 @@ function getCurrentContext(lookaround) {
     safety++;
   }
 
-  return prefix + " " + coreText + " " + suffix;
+  var resultText = prefix + " " + coreText + " " + suffix;
+  return buildContextResponse(doc, resultText);
+}
+
+/**
+ * Wraps the context text with the active tab title and document revision,
+ * which the sidebar uses to detect edits to the metadata tab.
+ */
+function buildContextResponse(doc, contextText) {
+  var activeTabTitle = "";
+  var revisionId = "";
+
+  try {
+    var activeTab = doc.getActiveTab();
+    if (activeTab) {
+      activeTabTitle = activeTab.getTitle();
+    }
+  } catch (e) {
+    // Tabs not supported
+  }
+
+  try {
+    revisionId = Docs.Documents.get(doc.getId(), {fields: "revisionId"}).revisionId;
+  } catch (e) {
+    // Leave revisionId empty; auto-reload just skips this poll
+  }
+
+  return {
+    contextText: contextText,
+    activeTabTitle: activeTabTitle,
+    revisionId: revisionId
+  };
 }

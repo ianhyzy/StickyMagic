@@ -375,6 +375,20 @@
           </div>
         </div>
 
+        <!-- Auto-Reload Setting -->
+        <div class="setting-item">
+          <div class="setting-header-row">
+            <span class="setting-label">Auto-reload on Edit</span>
+            <label class="switch">
+              <input type="checkbox" id="toggle-autoreload" onchange="toggleAutoReloadSetting()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-description">
+            Reload metadata automatically after you edit the source tab and switch back.
+          </div>
+        </div>
+
         <!-- Context Range Setting -->
         <div class="setting-item">
           <div class="setting-header-row">
@@ -395,8 +409,15 @@
       let isMetadataLoaded = false;
       let showStatusLine = true;
       let showCategory = true;
+      let autoReload = true;
+      let lastRevisionId = null;
+      let lastActiveTab = "";
+      let sourceTabDirty = false;
       let selectedTabTitle = 'Metadata';
       let contextRange = 0;
+      let currentContextText = "";
+      // Inline object ID -> data URI. null while loading, "" if the fetch failed.
+      let imageCache = {};
 
       window.onload = function() {
         // Load settings from storage
@@ -420,6 +441,9 @@
         const savedCategory = localStorage.getItem('novelHelper_showCategory');
         showCategory = savedCategory === null ? true : (savedCategory === 'true');
 
+        const savedAutoReload = localStorage.getItem('novelHelper_autoReload');
+        autoReload = savedAutoReload === null ? true : (savedAutoReload === 'true');
+
         const savedTab = localStorage.getItem('novelHelper_selectedTab');
         if (savedTab) selectedTabTitle = savedTab;
 
@@ -429,6 +453,7 @@
         // Update DOM
         document.getElementById('toggle-status').checked = showStatusLine;
         document.getElementById('toggle-category').checked = showCategory;
+        document.getElementById('toggle-autoreload').checked = autoReload;
         
         document.getElementById('range-slider').value = contextRange;
         document.getElementById('range-value').innerText = contextRange;
@@ -470,7 +495,12 @@
       function toggleCategorySetting() {
         showCategory = document.getElementById('toggle-category').checked;
         localStorage.setItem('novelHelper_showCategory', showCategory);
-        if (isMetadataLoaded) pollContext();
+        if (isMetadataLoaded) refreshView();
+      }
+
+      function toggleAutoReloadSetting() {
+        autoReload = document.getElementById('toggle-autoreload').checked;
+        localStorage.setItem('novelHelper_autoReload', autoReload);
       }
 
       function toggleTabSetting() {
@@ -516,34 +546,52 @@
       }
 
       // --- Core Logic ---
-      function fetchMetadata() {
+      function fetchMetadata(isSilent = false) {
         const btn = document.querySelector('button.action-btn');
         const originalText = btn.innerText;
-        btn.innerText = "Loading...";
-        btn.disabled = true;
         
-        updateStatus(`Fetching from "${selectedTabTitle}"...`);
+        if (!isSilent) {
+          btn.innerText = "Loading...";
+          btn.disabled = true;
+          updateStatus(`Fetching from "${selectedTabTitle}"...`);
+        } else {
+          updateStatus("Auto-refreshing metadata...");
+        }
 
         google.script.run
           .withSuccessHandler(function(response) {
-            btn.innerText = originalText;
-            btn.disabled = false;
+            if (!isSilent) {
+              btn.innerText = originalText;
+              btn.disabled = false;
+            }
 
             if (response.error) {
-              document.getElementById('content').innerHTML = `<div class="error">${response.error}</div>`;
+              if (!isSilent) {
+                document.getElementById('content').innerHTML = `<div class="error">${response.error}</div>`;
+              }
               updateStatus("Error loading metadata");
             } else {
               cachedMetadata = response.items;
+              // Image URIs are refreshed on every load, so retry ones that failed
+              for (const id in imageCache) {
+                if (imageCache[id] === "") delete imageCache[id];
+              }
               isMetadataLoaded = true;
-              document.getElementById('content').innerHTML = '<div class="loading" style="margin-top:0;">Metadata reloaded. Waiting for cursor...</div>';
+
+              if (!isSilent) {
+                document.getElementById('content').innerHTML = '<div class="loading" style="margin-top:0;">Metadata reloaded. Waiting for cursor...</div>';
+              }
+
               updateStatus("Metadata loaded. Watching cursor...");
-              pollContext();
+              refreshView();
             }
           })
           .withFailureHandler(function(err) {
-            btn.innerText = originalText;
-            btn.disabled = false;
-            document.getElementById('content').innerHTML = `<div class="error">Failed to load: ${err}</div>`;
+            if (!isSilent) {
+              btn.innerText = originalText;
+              btn.disabled = false;
+              document.getElementById('content').innerHTML = `<div class="error">Failed to load: ${err}</div>`;
+            }
             updateStatus("Connection failure");
           })
           .getMetadataContent(selectedTabTitle);
@@ -561,16 +609,53 @@
           .getCurrentContext(contextRange);
       }
 
-      function onContextReceived(contextText) {
+      function onContextReceived(response) {
+        // Handle legacy string response or new object response
+        let contextText = "";
+        let revisionId = null;
+        let activeTab = "";
+
+        if (typeof response === 'string') {
+          contextText = response;
+        } else if (response && typeof response === 'object') {
+          contextText = response.contextText;
+          revisionId = response.revisionId;
+          activeTab = response.activeTabTitle;
+        }
+
+        currentContextText = contextText;
+
+        // Auto-reload logic. The revision ID is document-wide, so a change only
+        // counts as a metadata edit if the source tab was active on this poll or
+        // the last one. Reload once the user leaves the tab, not on every keystroke.
+        if (autoReload && revisionId && activeTab) {
+          const touchedSource = activeTab === selectedTabTitle || lastActiveTab === selectedTabTitle;
+          if (lastRevisionId && revisionId !== lastRevisionId && touchedSource) {
+            sourceTabDirty = true;
+          }
+          if (sourceTabDirty && activeTab !== selectedTabTitle) {
+            sourceTabDirty = false;
+            fetchMetadata(true); // Silent reload
+          }
+          lastRevisionId = revisionId;
+          lastActiveTab = activeTab;
+        }
+
         if (!contextText) {
           updateStatus("Idle / No text selected");
+          renderMatches([]);
           return;
         }
         
         updateStatus("Active");
+        refreshView();
+      }
+
+      function refreshView() {
+        if (!currentContextText) return;
 
         const matches = [];
-        const lowerContext = contextText.toLowerCase();
+        const lowerContext = currentContextText.toLowerCase();
 
         for (const [key, data] of Object.entries(cachedMetadata)) {
           if (lowerContext.includes(key.toLowerCase())) {
@@ -579,7 +664,8 @@
               description: data.description,
               properties: data.properties,
               category: data.category,
-              imageUrl: data.imageUrl // Ensure imageUrl is passed
+              imageUrl: data.imageUrl,
+              imageId: data.imageId
             });
           }
         }
@@ -618,12 +704,17 @@
           }
 
           let imageHtml = '';
-          if (match.imageUrl) {
-            imageHtml = `
-              <div class="card-image">
-                <img src="${match.imageUrl}" alt="Character Image" />
-              </div>
-            `;
+          if (match.imageId) {
+            const src = imageCache[match.imageId];
+            if (src) {
+              imageHtml = `
+                <div class="card-image">
+                  <img src="${src}" alt="Character Image" />
+                </div>
+              `;
+            } else if (src === undefined) {
+              loadImage(match.imageId, match.imageUrl);
+            }
           }
 
           html += `
@@ -640,6 +731,19 @@
         if (container.innerHTML !== html) {
           container.innerHTML = html;
         }
+      }
+
+      function loadImage(imageId, imageUrl) {
+        imageCache[imageId] = null;
+        google.script.run
+          .withSuccessHandler(function(dataUri) {
+            imageCache[imageId] = dataUri || "";
+            if (dataUri) refreshView();
+          })
+          .withFailureHandler(function() {
+            imageCache[imageId] = "";
+          })
+          .getImageDataUri(imageUrl);
       }
 
       function updateStatus(msg) {
