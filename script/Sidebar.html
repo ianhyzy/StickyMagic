@@ -416,6 +416,8 @@
       let selectedTabTitle = 'Metadata';
       let contextRange = 0;
       let currentContextText = "";
+      // Inline object ID -> data URI. null while loading, "" if the fetch failed.
+      let imageCache = {};
 
       window.onload = function() {
         // Load settings from storage
@@ -570,6 +572,10 @@
               updateStatus("Error loading metadata");
             } else {
               cachedMetadata = response.items;
+              // Image URIs are refreshed on every load, so retry ones that failed
+              for (const id in imageCache) {
+                if (imageCache[id] === "") delete imageCache[id];
+              }
               isMetadataLoaded = true;
 
               if (!isSilent) {
@@ -658,7 +664,8 @@
               description: data.description,
               properties: data.properties,
               category: data.category,
-              imageUrl: data.imageUrl
+              imageUrl: data.imageUrl,
+              imageId: data.imageId
             });
           }
         }
@@ -697,12 +704,17 @@
           }
 
           let imageHtml = '';
-          if (match.imageUrl) {
-            imageHtml = `
-              <div class="card-image">
-                <img src="${match.imageUrl}" alt="Character Image" />
-              </div>
-            `;
+          if (match.imageId) {
+            const src = imageCache[match.imageId];
+            if (src) {
+              imageHtml = `
+                <div class="card-image">
+                  <img src="${src}" alt="Character Image" />
+                </div>
+              `;
+            } else if (src === undefined) {
+              loadImage(match.imageId, match.imageUrl);
+            }
           }
 
           html += `
@@ -719,6 +731,19 @@
         if (container.innerHTML !== html) {
           container.innerHTML = html;
         }
+      }
+
+      function loadImage(imageId, imageUrl) {
+        imageCache[imageId] = null;
+        google.script.run
+          .withSuccessHandler(function(dataUri) {
+            imageCache[imageId] = dataUri || "";
+            if (dataUri) refreshView();
+          })
+          .withFailureHandler(function() {
+            imageCache[imageId] = "";
+          })
+          .getImageDataUri(imageUrl);
       }
 
       function updateStatus(msg) {
