@@ -324,7 +324,7 @@ function getCurrentContext(lookaround) {
     }
   }
 
-  if (!startBlock) return "";
+  if (!startBlock) return buildContextResponse(doc, "");
 
   // 2. Look Backwards (Prepend text)
   var prefix = "";
@@ -365,31 +365,34 @@ function getCurrentContext(lookaround) {
   }
 
   var resultText = prefix + " " + coreText + " " + suffix;
+  return buildContextResponse(doc, resultText);
+}
 
-  // Retrieve Revision ID and Active Tab for auto-reload feature
+/**
+ * Wraps the context text with the active tab title and document revision,
+ * which the sidebar uses to detect edits to the metadata tab.
+ */
+function buildContextResponse(doc, contextText) {
   var activeTabTitle = "";
   var revisionId = "";
 
   try {
     var activeTab = doc.getActiveTab();
     if (activeTab) {
-      activeTabTitle = activeTab.asDocumentTab().getTitle();
+      activeTabTitle = activeTab.getTitle();
     }
   } catch (e) {
-    // Ignore errors if tabs not supported or other issue
+    // Tabs not supported
   }
 
   try {
-    // Only fetch revision ID if needed (lightweight check)
-    // Note: This consumes a small amount of quota
-    var driveFile = Docs.Documents.get(doc.getId(), {fields: "revisionId"});
-    revisionId = driveFile.revisionId;
+    revisionId = Docs.Documents.get(doc.getId(), {fields: "revisionId"}).revisionId;
   } catch (e) {
-    // Ignore
+    // Leave revisionId empty; auto-reload just skips this poll
   }
 
   return {
-    contextText: resultText,
+    contextText: contextText,
     activeTabTitle: activeTabTitle,
     revisionId: revisionId
   };

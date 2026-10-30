@@ -385,7 +385,7 @@
             </label>
           </div>
           <div class="setting-description">
-            Automatically reload metadata when changes are detected in the source tab.
+            Reload metadata automatically after you edit the source tab and switch back.
           </div>
         </div>
 
@@ -411,6 +411,8 @@
       let showCategory = true;
       let autoReload = true;
       let lastRevisionId = null;
+      let lastActiveTab = "";
+      let sourceTabDirty = false;
       let selectedTabTitle = 'Metadata';
       let contextRange = 0;
       let currentContextText = "";
@@ -617,21 +619,25 @@
 
         currentContextText = contextText;
 
-        // Auto-reload logic
+        // Auto-reload logic. The revision ID is document-wide, so a change only
+        // counts as a metadata edit if the source tab was active on this poll or
+        // the last one. Reload once the user leaves the tab, not on every keystroke.
         if (autoReload && revisionId && activeTab) {
-          // If we are on the Source Tab and revision changed
-          if (activeTab === selectedTabTitle && lastRevisionId && revisionId !== lastRevisionId) {
-             console.log("Change detected in source tab. Reloading...");
-             fetchMetadata(true); // Silent reload
+          const touchedSource = activeTab === selectedTabTitle || lastActiveTab === selectedTabTitle;
+          if (lastRevisionId && revisionId !== lastRevisionId && touchedSource) {
+            sourceTabDirty = true;
+          }
+          if (sourceTabDirty && activeTab !== selectedTabTitle) {
+            sourceTabDirty = false;
+            fetchMetadata(true); // Silent reload
           }
           lastRevisionId = revisionId;
+          lastActiveTab = activeTab;
         }
 
         if (!contextText) {
           updateStatus("Idle / No text selected");
-          // Clear matches if context is empty? Or keep last known?
-          // Usually better to clear or show empty state if user clicked away
-          if (!response) renderMatches([]);
+          renderMatches([]);
           return;
         }
         
