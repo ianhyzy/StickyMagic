@@ -15,10 +15,30 @@ const { test: base, expect } = require("@playwright/test");
 const CDP = process.env.CI_BROWSER || "http://192.168.86.47:9223";
 const DOC = "https://docs.google.com/document/d/1eO99TzF0tZXCB4v8FEgZLacoqmA9_3Hhh4dfSKbnPNI/edit?tab=t.0";
 
+// Two pipelines at once would drive the same doc and sidebar. A run holds the browser while it has a tab open
+// at LOCK-<start ms>; the oldest lock wins, and one older than a workflow can run is a crashed run's, so it goes.
+const LOCK = "about:blank#stickymagic-ci-lock-";
+async function lockBrowser(context) {
+  const locks = () => context.pages().filter((p) => p.url().startsWith(LOCK));
+  const age = (p) => Date.now() - Number(p.url().slice(LOCK.length));
+  for (;;) {
+    for (const p of locks()) if (age(p) > 6 * 60000) await p.close();
+    if (!locks().length) {
+      const mine = await context.newPage();
+      await mine.goto(LOCK + Date.now());
+      const oldest = locks().sort((a, b) => age(b) - age(a))[0];
+      if (oldest === mine) return mine;
+      await mine.close(); // someone took it at the same moment
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+}
+
 // One doc page and its sidebar for all tests, in the signed-in Chrome on the VM.
 const test = base.extend({
   doc: [async ({ playwright }, use) => {
     const browser = await playwright.chromium.connectOverCDP(CDP);
+    const lock = await lockBrowser(browser.contexts()[0]);
     const page = await browser.contexts()[0].newPage();
     // The VM's Chrome has 1Password installed; its popups sit on top of Docs and swallow clicks.
     await page.addInitScript(() => {
@@ -39,7 +59,8 @@ const test = base.extend({
     await useSource(sidebar, "Metadata"); // the source tab is remembered in localStorage across runs
     await use({ page, sidebar });
     await page.close();
-  }, { scope: "worker" }],
+    await lock.close();
+  }, { scope: "worker", timeout: 300000 }], // may wait for another run's lock
 });
 test.describe.configure({ mode: "serial" });
 
@@ -62,14 +83,16 @@ async function openTab(page, name, where) {
 
 // Selects the first match of text in the current tab with Docs' own Find. The selection stays: the add-on then
 // reads the selected text element, which is the whole paragraph unless a chip or inline image splits it.
+// Text only ever goes into the Find box: typed into the document after a select-all, it would replace the tab.
 async function select(page, text) {
   await page.keyboard.press("Control+f");
-  await page.keyboard.press("Control+a");
-  await page.keyboard.type(text);
-  await page.keyboard.press("Enter");
+  const box = page.locator('input[aria-label="Find in document"]');
+  await expect(box).toBeFocused({ timeout: 5000 });
+  await box.fill(text);
+  await box.press("Enter");
   await expect(page.getByText(/^[1-9]\d* of \d+$/).first()).toBeVisible(); // counts while typing, before Enter jumps
   await page.waitForTimeout(1000);
-  await page.keyboard.press("Escape");
+  await box.press("Escape");
 }
 
 // Selects text and waits until the sidebar's own poll reports that paragraph. Docs sometimes doesn't tell
