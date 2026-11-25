@@ -28,12 +28,14 @@ steps:
   - name: push script/ to the test doc's bound script
     # CLASPRC_JSON is a spindle secret: clasp login for ian@appsscript.club.
     # Same three files as the GitHub deploy: appsscript.json, Code.js, Sidebar.html.
+    # clasp 2.5 ignores -A, so it reads $HOME/.clasprc.json.
     command: |
+      [ -n "$CLASPRC_JSON" ] || { echo "CLASPRC_JSON secret is missing"; exit 1; }
       mkdir -p .ci/push && cp script/* .ci/push/
-      printf '%s' "$CLASPRC_JSON" > .ci/clasprc.json
+      printf '%s' "$CLASPRC_JSON" > .ci/.clasprc.json
       printf '{"scriptId":"%s","rootDir":"."}' "$TEST_SCRIPT_ID" > .ci/push/.clasp.json
-      cd .ci/push && clasp -A ../clasprc.json -P . push -f; status=$?
-      rm -f ../clasprc.json; exit $status
+      cd .ci/push && HOME=.. clasp push -f; status=$?
+      rm -f ../.clasprc.json; exit $status
 
   - name: real Google Doc in Chrome on the ci-browser VM
     command: sh tests/pw --project=doc
