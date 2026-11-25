@@ -45,3 +45,10 @@ _spoiler: she's the mole   ← a line starting with "_" ends the entry; the rest
 - The workflow needs a `CLASPRC_JSON` repo secret: the contents of `~/.clasprc.json` after `clasp login` with the account that owns the script.
 - `.clasp.json` sits at the repo root with `rootDir: "."`, so Apps Script file names carry a `script/` prefix — that's why `showSidebar` loads `script/Sidebar`. Don't move files without updating it.
 - The **Docs** advanced service (v1) must stay enabled in `appsscript.json`; tab reading depends on it.
+
+### Tests
+
+Every push to Tangled runs `.tangled/workflows/test.yml` on the spindle at spindle.ian.gay:
+
+- `tests/sidebar.spec.js`: `Sidebar.html` alone, with `google.script.run` faked, in headless Firefox.
+- `tests/doc.spec.js`: the pushed `script/` code in the real test doc *StickyMagic CI* (owned by the test account ian@appsscript.club), driven in the signed-in Chrome on the `ci-browser` VM on Tower. Watch it from Unraid → VMs → ci-browser → VNC Remote. The workflow's `CLASPRC_JSON` secret is a `clasp login` for that test account, not the deploy account.

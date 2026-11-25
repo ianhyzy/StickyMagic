@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs nixpkgs' Playwright (CI installs nothing with npm): point it at its own module and browsers.
+export PLAYWRIGHT_BROWSERS_PATH="$(ls -d /nix/store/*-playwright-browsers* | head -n 1)"
+export NODE_PATH="$(dirname "$(readlink -f "$(command -v playwright)")")/../lib/node_modules"
+exec playwright test "$@"

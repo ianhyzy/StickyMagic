@@ -1,0 +1,39 @@
+# Browser tests on Tangled, run by the spindle at spindle.ian.gay (Tower).
+# sidebar: Sidebar.html alone with google.script.run faked, in headless Firefox.
+# doc: this commit's script/ pushed to the bound script of the test doc "StickyMagic CI" (ian@appsscript.club),
+#      then driven in the signed-in Chrome on the ci-browser VM. Its DevTools port only accepts Tower.
+# The GitHub workflow still deploys script/ to the real Apps Script project; this one never touches it.
+when:
+  - event: [push, manual]
+    branch: ["**"]
+  - event: pull_request
+    branch: main
+
+engine: nixery
+dependencies:
+  nixpkgs:
+    - nodejs
+    - playwright-test
+    - playwright-driver.browsers
+    - google-clasp
+
+environment:
+  CI_BROWSER: http://192.168.86.47:9223
+  TEST_SCRIPT_ID: 1VG6u1eBVZonvQzn0MdEskhUbgwGnGxhh5wZRVs5TxGE4hGgprVNW9g24
+
+steps:
+  - name: sidebar with google.script.run faked (Firefox)
+    command: sh tests/pw --project=sidebar
+
+  - name: push script/ to the test doc's bound script
+    # CLASPRC_JSON is a spindle secret: clasp login for ian@appsscript.club.
+    # Same three files as the GitHub deploy: appsscript.json, Code.js, Sidebar.html.
+    command: |
+      mkdir -p .ci/push && cp script/* .ci/push/
+      printf '%s' "$CLASPRC_JSON" > .ci/clasprc.json
+      printf '{"scriptId":"%s","rootDir":"."}' "$TEST_SCRIPT_ID" > .ci/push/.clasp.json
+      cd .ci/push && clasp -A ../clasprc.json -P . push -f; status=$?
+      rm -f ../clasprc.json; exit $status
+
+  - name: real Google Doc in Chrome on the ci-browser VM
+    command: sh tests/pw --project=doc
