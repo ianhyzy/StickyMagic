@@ -31,6 +31,7 @@ _spoiler: she's the mole   ← a line starting with "_" ends the entry; the rest
 - **Headings are entries too**, and nest everything below them into a breadcrumb path (`Characters › Crew`). A heading with no description lists its children automatically.
 - **A description containing `:` becomes a property instead.** Rephrase it or it vanishes from the card.
 - **One image per entry**: the first inline or anchored image in it.
+- Lines broken with Shift+Enter count as separate lines. Smart chips (people, dates, dropdowns) read as the text they show. Pending suggestions are ignored until accepted. The source can be a subtab.
 - **Matching is a case-insensitive substring search** — no word boundaries, no aliases. `Al` will also fire on "also"; add nicknames as separate entries.
 
 ## Using the sidebar

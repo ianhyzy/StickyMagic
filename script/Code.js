@@ -32,7 +32,9 @@ function getMetadataContent(tabName) {
   
   try {
     var doc = Docs.Documents.get(docId, {
-      'includeTabsContent': true
+      'includeTabsContent': true,
+      // Read pending suggestions as if rejected; inline, a suggested "Age: 53" over "Age: 52" reads "Age: 53Age: 52"
+      'suggestionsViewMode': 'PREVIEW_WITHOUT_SUGGESTIONS'
     });
 
     // Root level objects (mostly for single-tab or legacy docs)
@@ -44,7 +46,7 @@ function getMetadataContent(tabName) {
       return { items: parseBodyContent(doc.body.content, rootInlineObjects, rootPositionedObjects) };
     }
 
-    var metadataTab = doc.tabs.find(tab => tab.tabProperties.title === targetTabName);
+    var metadataTab = findTab(doc.tabs, targetTabName);
 
     if (!metadataTab) {
       return { error: "Tab named '" + targetTabName + "' not found." };
@@ -63,18 +65,30 @@ function getMetadataContent(tabName) {
   }
 }
 
-function getTabList() {
-  var docId = DocumentApp.getActiveDocument().getId();
-  try {
-    var doc = Docs.Documents.get(docId, { 'includeTabsContent': false });
-    if (!doc.tabs) return [];
-    
-    return doc.tabs.map(function(tab) {
-      return { title: tab.tabProperties.title };
-    });
-  } catch (e) {
-    return [];
+// Depth-first, so subtabs follow their parent tab.
+function findTab(tabs, title) {
+  for (var i = 0; i < (tabs || []).length; i++) {
+    if (tabs[i].tabProperties.title === title) return tabs[i];
+    var child = findTab(tabs[i].childTabs, title);
+    if (child) return child;
   }
+  return null;
+}
+
+// All tab titles, subtabs included, in document order.
+function getTabList() {
+  var titles = [];
+  try {
+    (function walk(tabs) {
+      tabs.forEach(function(tab) {
+        titles.push({ title: tab.getTitle() });
+        walk(tab.getChildTabs());
+      });
+    })(DocumentApp.getActiveDocument().getTabs());
+  } catch (e) {
+    // Leave whatever was collected
+  }
+  return titles;
 }
 
 /**
@@ -106,6 +120,14 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
       element.paragraph.elements.forEach(function(el) {
         if (el.textRun && el.textRun.content) {
           text += el.textRun.content;
+        } else if (el.person) {
+          text += el.person.personProperties.name || el.person.personProperties.email || "";
+        } else if (el.dateElement) {
+          text += el.dateElement.dateElementProperties.displayText || "";
+        } else if (el.dropdown) {
+          text += el.dropdown.dropdownProperties.displayValue || "";
+        } else if (el.richLink) {
+          text += el.richLink.richLinkProperties.title || el.richLink.richLinkProperties.uri || "";
         } else if (el.inlineObjectElement && inlineObjects) {
           var objectId = el.inlineObjectElement.inlineObjectId;
           if (inlineObjects[objectId] &&
@@ -140,11 +162,16 @@ function parseBodyContent(contentArray, inlineObjects, positionedObjects) {
         style = element.paragraph.paragraphStyle.namedStyleType;
       }
 
-      lines.push({
-        text: text.trim(),
-        style: style,
-        imageUrl: imageUrl,
-        imageId: imageId
+      // Shift+Enter puts a vertical tab inside one paragraph; each such line counts as its own line,
+      // except in headings, which stay one heading.
+      var parts = /^HEADING_/.test(style) ? [text.replace(/\u000b/g, " ")] : text.split("\u000b");
+      parts.forEach(function(part, i) {
+        lines.push({
+          text: part.trim(),
+          style: style,
+          imageUrl: i === 0 ? imageUrl : null,
+          imageId: i === 0 ? imageId : null
+        });
       });
     }
   });
@@ -313,6 +340,15 @@ function getCurrentContext(lookaround) {
     return null;
   }
 
+  // Element wrappers aren't reused between calls, so identify a block by its path of child indexes
+  function blockKey(element) {
+    var path = [];
+    for (var parent = element.getParent(); parent; element = parent, parent = parent.getParent()) {
+      path.push(parent.getChildIndex(element));
+    }
+    return path.join("/");
+  }
+
   // Helper to extract text safely from blocks
   function getTextSafe(el) {
      if (!el) return "";
@@ -330,17 +366,16 @@ function getCurrentContext(lookaround) {
       endBlock = getBlockParent(elements[elements.length - 1].getElement());
     }
 
-    // Accumulate actual selection text
+    // Whole paragraphs the selection touches, each once. A smart chip splits a paragraph into several
+    // Text elements, so reading only the selected Text element would miss the words before the chip.
+    var seen = {};
     for (var i = 0; i < elements.length; i++) {
-      var element = elements[i].getElement();
-      var type = element.getType();
-      if (type === DocumentApp.ElementType.PARAGRAPH) {
-        coreText += element.asParagraph().getText() + " ";
-      } else if (type === DocumentApp.ElementType.LIST_ITEM) {
-        coreText += element.asListItem().getText() + " ";
-      } else if (type === DocumentApp.ElementType.TEXT) {
-        coreText += element.asText().getText() + " ";
-      }
+      var block = getBlockParent(elements[i].getElement());
+      if (!block) continue;
+      var key = blockKey(block);
+      if (seen[key]) continue;
+      seen[key] = true;
+      coreText += getTextSafe(block) + " ";
     }
   } 
   else if (cursor) {

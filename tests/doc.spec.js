@@ -34,7 +34,8 @@ const test = base.extend({
     await page.getByText("Open Sticky Magic", { exact: true }).click();
     let sidebar;
     await expect.poll(() => (sidebar = page.frames().find((f) => f.name() === "userHtmlFrame")), { timeout: 60000 }).toBeTruthy();
-    await sidebar.waitForFunction(() => typeof fetchMetadata === "function", null, { timeout: 60000 });
+    // Let the sidebar's own first load finish, or its late reply could pass for the next useSource's
+    await sidebar.waitForFunction(() => typeof isMetadataLoaded !== "undefined" && (isMetadataLoaded || /Error/.test(document.getElementById("status-indicator").textContent)), null, { timeout: 60000 });
     await useSource(sidebar, "Metadata"); // the source tab is remembered in localStorage across runs
     await use({ page, sidebar });
     await page.close();
@@ -42,7 +43,7 @@ const test = base.extend({
 });
 test.describe.configure({ mode: "serial" });
 
-// Same effect as picking a Source Tab in the sidebar's settings (whose picker is empty: see the first test).
+// Same effect as picking a Source Tab in the sidebar's settings, without opening them.
 async function useSource(sidebar, tab) {
   await sidebar.evaluate((tab) => {
     isMetadataLoaded = false;
@@ -86,9 +87,6 @@ const cardNames = (sidebar) => sidebar.locator(".card h4");
 const card = (sidebar, name) => sidebar.locator(".card").filter({ has: sidebar.locator("h4", { hasText: new RegExp(`^${name}$`) }) });
 
 test("lists the document tabs", async ({ doc: { sidebar } }) => {
-  // Known bug: getTabList asks Docs for includeTabsContent: false, which leaves Document.tabs unset,
-  // so it returns [] and the Source Tab picker is empty.
-  test.fail();
   await expect(sidebar.locator("#tab-selector option")).toHaveText(["Story", "Metadata", "Novel", "Appendix", "Codex", "Places"], { timeout: 5000 });
 });
 
@@ -159,38 +157,26 @@ test.describe("complex tabs: Novel with Codex as the source", () => {
   });
 
   test("reads a pending suggestion as the accepted text", async ({ doc: { page, sidebar } }) => {
-    // Known bug: Docs.Documents.get returns suggestions inline by default, so the suggested "Age: 53"
-    // and the original "Age: 52" run together as "53Age: 52". Pass suggestionsViewMode: "PREVIEW_WITHOUT_SUGGESTIONS".
-    test.fail();
     await moveTo(page, sidebar, "stood at the rail of The Gull");
     await expect(card(sidebar, "Ilse Varga").locator(".property-row", { hasText: "Age:" }).locator(".property-value")).toHaveText("52", { timeout: 10000 });
   });
 
   test("keeps the text of smart chips in properties", async ({ doc: { sidebar } }) => {
-    // Known bug: parseBodyContent only reads textRun elements, so person, date and dropdown chips vanish
-    // and Harbor Office's Contact, Filed and Status lines have no value.
-    test.fail();
-    expect(await sidebar.evaluate(() => Object.keys(cachedMetadata["Harbor Office"].properties))).toEqual(["Contact", "Filed", "Status"]);
+    expect(await sidebar.evaluate(() => cachedMetadata["Harbor Office"].properties))
+      .toEqual({ Contact: "Ian Hyzy", Filed: "Nov 25, 2026", Status: "Not Started" }); // person, date and dropdown chips
   });
 
   test("splits an entry typed with soft line breaks (Shift+Enter)", async ({ doc: { sidebar } }) => {
-    // Known bug: lines split with Shift+Enter are one paragraph, so "Halvard Sund\vSoft line breaks…\vAge: 40"
-    // becomes one entry name instead of a name, a description and a property.
-    test.fail();
-    expect(await sidebar.evaluate(() => Object.keys(cachedMetadata))).toContain("Halvard Sund");
+    expect(await sidebar.evaluate(() => cachedMetadata["Halvard Sund"]))
+      .toMatchObject({ description: "Soft line breaks instead of new paragraphs", properties: { Age: "40" } });
   });
 
   test("scans the whole paragraph when the selection follows a chip", async ({ doc: { page, sidebar } }) => {
-    // Known bug: with text selected after a smart chip, getCurrentContext only sees the Text element after the
-    // chip, so 李娜, earlier in the same paragraph, gets no card.
-    test.fail();
     await moveTo(page, sidebar, "filed under Ilse Varga");
     await expect(cardNames(sidebar)).toContainText(["李娜"], { timeout: 10000 });
   });
 
   test("can use a subtab as the source", async ({ doc: { page, sidebar } }) => {
-    // Known bug: getMetadataContent only searches top-level tabs, so the Places subtab is "not found".
-    test.fail();
     await useSource(sidebar, "Places");
     await expect(sidebar.locator("#status-indicator")).not.toContainText("Error", { timeout: 5000 });
   });
