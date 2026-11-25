@@ -1,0 +1,6 @@
+# The GitHub deploy runs clasp from script/, but clasp tracks every .js/.html under the repo root.
+# Push only the add-on: test files at top level would break every call in the live script.
+**/**
+!script/appsscript.json
+!script/Code.js
+!script/Sidebar.html
